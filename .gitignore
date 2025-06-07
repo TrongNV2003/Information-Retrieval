@@ -1,0 +1,30 @@
+# Ignore Python bytecode files
+__pycache__/
+*.py[cod]
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Ignore model files
+*.h5
+*.pt
+
+# Ignore logs
+logs/
+*.log
+*.json
+# Ignore data files
+data/
+*.csv
+*.json
+*.xlsx
+documents/
+_debugger.py
+dataset
+
+# Ignore environment files
+*.env
+
+# Ignore temporary files
+*.tmp
+*.png
