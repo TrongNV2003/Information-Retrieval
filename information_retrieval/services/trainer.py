@@ -43,7 +43,6 @@ class TrainingArguments:
         lora_alpha: int = 32,
         lora_dropout: float = 0.1,
         lora_target_modules: list = None,
-        corpus_embedding_file: Optional[str] = None,
     ) -> None:
         self.device = device
         self.epochs = epochs
@@ -54,7 +53,6 @@ class TrainingArguments:
         
         self.use_triplet_loss = use_triplet_loss
         self.triplet_loss_margin = triplet_loss_margin
-        self.corpus_embedding_file = corpus_embedding_file
 
         self.train_loader = DataLoader(
             train_set,

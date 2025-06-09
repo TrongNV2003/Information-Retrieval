@@ -76,7 +76,6 @@ class Collator:
             truncation=True,
             return_tensors='pt'
         )
-        labels = torch.arange(len(batch), dtype=torch.long)
 
         return query_inputs, positive_inputs, negative_inputs
 

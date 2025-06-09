@@ -1,5 +1,6 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import time
 import random
@@ -14,6 +15,7 @@ from information_retrieval.services.trainer import TrainingArguments
 from information_retrieval.services.evaluate import TestingArguments
 from information_retrieval.services.dataloader import BiEncoderDataset, Collator
 from information_retrieval.services.testloader import BiEncoderValDataset, BiEncoderValCollator
+from information_retrieval.handler.encode_corpus import encode_corpus
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -82,7 +84,6 @@ if __name__ == "__main__":
 
     tokenizer = get_tokenizer(args.model)
     corpus_meta_file = "embedding_corpus/legal_corpus_docs.json"
-    corpus_embedding_file = "embedding_corpus/halong_embedding/legal_corpus_embeddings.npy"
     
     train_set = BiEncoderDataset(json_file=args.train_file, tokenizer=tokenizer, max_length=args.max_length, include_title=False)
     val_set = BiEncoderDataset(json_file=args.val_file, tokenizer=tokenizer, max_length=args.max_length, include_title=False)
@@ -135,7 +136,6 @@ if __name__ == "__main__":
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
         lora_target_modules=args.lora_target_modules.split(',') if args.lora_target_modules else None,
-        corpus_embedding_file=corpus_embedding_file,
     )
     trainer.train()
     end_time = time.time()
@@ -151,6 +151,16 @@ if __name__ == "__main__":
     else:
         tuned_model = get_model(save_dir, device=device)
     
+    corpus_embedding = encode_corpus(
+        corpus=corpus_meta_file,
+        tuned_model=tuned_model,
+        tokenizer=tokenizer,
+        save_dir="embedding_corpus/halong_embedding",
+        device=device,
+        batch_size=32
+    )
+    # corpus_embedding = "embedding_corpus/halong_embedding/legal_corpus_embeddings.npy"
+    
     tester = TestingArguments(
         dataloader_workers=args.dataloader_workers,
         device=device,
@@ -160,7 +170,7 @@ if __name__ == "__main__":
         test_batch_size=args.test_batch_size,
         collate_fn=test_collator,
         output_file=args.record_output_file,
-        corpus_embedding_file=corpus_embedding_file,
+        corpus_embedding=corpus_embedding,
         top_k=10
     )
     tester.evaluate()

@@ -3,7 +3,7 @@ import time
 import faiss
 import numpy as np
 from tqdm import tqdm
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Union
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -22,7 +22,7 @@ class TestingArguments:
         test_batch_size: int,
         collate_fn: Optional[Callable] = None,
         output_file: Optional[str] = None,
-        corpus_embedding_file: Optional[str] = None,
+        corpus_embedding: Optional[Union[str, np.ndarray]] = None,
         top_k: int = 10,
     ) -> None:
         self.device = device
@@ -38,8 +38,16 @@ class TestingArguments:
         self.output_file = output_file
         self.top_k = top_k
         
-
-        corpus_emb = np.load(corpus_embedding_file).astype(np.float32)
+        if isinstance(corpus_embedding, str):
+            print(f"Loading corpus embeddings from file: {corpus_embedding}")
+            corpus_emb = np.load(corpus_embedding).astype(np.float32)
+        elif isinstance(corpus_embedding, np.ndarray):
+            print("Using provided numpy array for corpus embeddings.")
+            corpus_emb = corpus_embedding.astype(np.float32)
+        else:
+            raise TypeError(f"Unsupported type for `corpus_embedding`: {type(corpus_embedding)}. "
+                            "Please provide a file path (str) or a numpy array.")
+            
         self.corpus_emb = corpus_emb
         d = corpus_emb.shape[1]
         self.faiss_index = faiss.IndexFlatIP(d)
@@ -178,8 +186,6 @@ class TestingArguments:
                 "count_top1": int(np.sum(all_ranks == 1)),
                 "count_top5": int(np.sum(all_ranks <= 5)),
                 "count_top10": int(np.sum(all_ranks <= 10)),
-                "count_top50": int(np.sum(all_ranks <= 50)),
-                "count_top100": int(np.sum(all_ranks <= 100)),
             }
             metrics["rank_distribution"] = rank_distribution
         else:
@@ -216,8 +222,6 @@ class TestingArguments:
             print(f"Top-1: {dist['count_top1']}/{total} ({dist['count_top1']/total*100:.2f}%)")
             print(f"Top-5: {dist['count_top5']}/{total} ({dist['count_top5']/total*100:.2f}%)")
             print(f"Top-10: {dist['count_top10']}/{total} ({dist['count_top10']/total*100:.2f}%)")
-            print(f"Top-50: {dist['count_top50']}/{total} ({dist['count_top50']/total*100:.2f}%)")
-            print(f"Top-100: {dist['count_top100']}/{total} ({dist['count_top100']/total*100:.2f}%)")
         
         return metrics
 
@@ -228,7 +232,6 @@ class TestingArguments:
         per_sample_latencies = latencies_array * 1000 / batch_size
         
         stats = {
-            "p50_ms": float(np.percentile(per_sample_latencies, 50)),
             "p95_ms": float(np.percentile(per_sample_latencies, 95)),
             "p99_ms": float(np.percentile(per_sample_latencies, 99)),
             "mean_ms": float(np.mean(per_sample_latencies)),
