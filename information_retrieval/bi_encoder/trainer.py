@@ -5,15 +5,14 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, get_scheduler
 from peft import LoraConfig, get_peft_model, PeftModel
+from sentence_transformers.losses import MultipleNegativesRankingLoss
 
 import numpy as np
 from tqdm import tqdm
 from loguru import logger
 from typing import Optional, Callable
 
-from information_retrieval.utils.norm import normalize
 from information_retrieval.utils.utils import AverageMeter
-from information_retrieval.services.loss import LossFunctionFactory
 
 class TrainingArguments:
     def __init__(
@@ -36,8 +35,6 @@ class TrainingArguments:
         early_stopping_threshold: float = 0.001,
         evaluate_on_mrr: bool = True,
         collator_fn: Optional[Callable] = None,
-        use_triplet_loss: bool = False,
-        triplet_loss_margin: float = 1.0,
         use_lora: bool = False,
         lora_rank: int = 16,
         lora_alpha: int = 32,
@@ -50,9 +47,6 @@ class TrainingArguments:
         self.tokenizer = tokenizer
         self.train_batch_size = train_batch_size
         self.valid_batch_size = valid_batch_size
-        
-        self.use_triplet_loss = use_triplet_loss
-        self.triplet_loss_margin = triplet_loss_margin
 
         self.train_loader = DataLoader(
             train_set,
@@ -109,16 +103,9 @@ class TrainingArguments:
             ]
             self.optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
 
-        self.loss_factory = LossFunctionFactory()
-        if self.use_triplet_loss:
-            self.loss_fn = nn.TripletMarginLoss(margin=1.0, p=2, reduction='mean')
-            logger.info("Using Triplet Loss")
-        else:
-            self.loss_fn = self.loss_factory.get_loss("multiple_negatives_ranking")
-            # self.loss_fn = self.loss_factory.get_loss("ranking", tau=20)
-            logger.info("Using Ranking Loss")
-
         
+        self.loss_fn = MultipleNegativesRankingLoss(model=self.model)
+
         num_training_steps = len(self.train_loader) * epochs
         self.scheduler = get_scheduler(
             "linear",
@@ -142,36 +129,23 @@ class TrainingArguments:
             with tqdm(total=len(self.train_loader), unit="batches") as tepoch:
                 tepoch.set_description(f"epoch {epoch}")
                 for batch in self.train_loader:
-                    query_inputs, positive_inputs, negative_inputs = batch
-                    query_input_ids = query_inputs["input_ids"].to(self.device)
-                    query_attention_mask = query_inputs["attention_mask"].to(self.device)
-                    positive_input_ids = positive_inputs["input_ids"].to(self.device)
-                    positive_attention_mask = positive_inputs["attention_mask"].to(self.device)
-                    negative_input_ids = negative_inputs["input_ids"].to(self.device)
-                    negative_attention_mask = negative_inputs["attention_mask"].to(self.device)
+                    sentence_features, labels = batch
+                    
+                    for i in range(len(sentence_features)):
+                        sentence_features[i] = {k: v.to(self.device) for k, v in sentence_features[i].items()}
+                    labels = labels.to(self.device)
 
                     self.optimizer.zero_grad()
 
-                    query_embeddings = self.model(input_ids=query_input_ids, attention_mask=query_attention_mask)
-                    positive_embeddings = self.model(input_ids=positive_input_ids, attention_mask=positive_attention_mask)
-                    negative_embeddings = self.model(input_ids=negative_input_ids, attention_mask=negative_attention_mask)
-
-                    query_embeddings = query_embeddings.last_hidden_state[:, 0, :]
-                    positive_embeddings = positive_embeddings.last_hidden_state[:, 0, :]
-                    negative_embeddings = negative_embeddings.last_hidden_state[:, 0, :]
-
-                    query_embeddings = normalize(query_embeddings)
-                    positive_embeddings = normalize(positive_embeddings)
-                    negative_embeddings = normalize(negative_embeddings)
-
-                    loss = self.loss_fn(query_embeddings, positive_embeddings, negative_embeddings)
+                    loss = self.loss_fn(sentence_features, labels)
                     loss.backward()
 
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.optimizer.step()
                     self.scheduler.step()
-
-                    train_loss.update(loss.item(), query_input_ids.size(0))
+                    
+                    batch_size = sentence_features[0]['input_ids'].size(0)
+                    train_loss.update(loss.item(), batch_size)
                     current_lr = self.optimizer.param_groups[0]["lr"]
                     tepoch.set_postfix({"train_loss": train_loss.avg, "lr": current_lr})
                     tepoch.update(1)
@@ -221,44 +195,32 @@ class TrainingArguments:
         with tqdm(total=len(dataloader), unit="batches") as tepoch:
             tepoch.set_description("validation")
             for batch_idx, batch in enumerate(dataloader):
-                query_inputs, positive_inputs, negative_inputs = batch
-                query_input_ids = query_inputs["input_ids"].to(self.device)
-                query_attention_mask = query_inputs["attention_mask"].to(self.device)
-                positive_input_ids = positive_inputs["input_ids"].to(self.device)
-                positive_attention_mask = positive_inputs["attention_mask"].to(self.device)
-                negative_input_ids = negative_inputs["input_ids"].to(self.device)
-                negative_attention_mask = negative_inputs["attention_mask"].to(self.device)
+                sentence_features, _ = batch
                 
-                batch_size = query_input_ids.size(0)
-                total_samples += batch_size
-
-                query_embeddings = self.model(input_ids=query_input_ids, attention_mask=query_attention_mask)
-                positive_embeddings = self.model(input_ids=positive_input_ids, attention_mask=positive_attention_mask)
-                negative_embeddings = self.model(input_ids=negative_input_ids, attention_mask=negative_attention_mask)
+                query_embs = self.model(sentence_features[0])['sentence_embedding']
+                positive_embs = self.model(sentence_features[1])['sentence_embedding']
                 
-                # Comment lại nếu dùng custom pooling
-                query_embeddings = query_embeddings.last_hidden_state[:, 0, :]
-                positive_embeddings = positive_embeddings.last_hidden_state[:, 0, :]
-                negative_embeddings = negative_embeddings.last_hidden_state[:, 0, :]
-
-                query_embeddings = normalize(query_embeddings)
-                positive_embeddings = normalize(positive_embeddings)
-                negative_embeddings = normalize(negative_embeddings)
+                negative_embs_list = []
+                for i in range(2, len(sentence_features)):
+                    negative_embs_list.append(self.model(sentence_features[i])['sentence_embedding'])
+                
+                all_negative_embs = torch.cat(negative_embs_list, dim=0)
+                batch_size = query_embs.size(0)
+                num_neg_per_query = len(negative_embs_list)
                 
                 for i in range(batch_size):
-                    query_emb = query_embeddings[i:i+1]
-                    positive_emb = positive_embeddings[i:i+1]
-                    neg_embs = negative_embeddings[i*3:(i+1)*3]
+                    query_emb = query_embs[i:i+1]
+                    positive_emb = positive_embs[i:i+1]
                     
+                    start_idx = i * num_neg_per_query
+                    end_idx = (i + 1) * num_neg_per_query
+                    neg_embs = all_negative_embs[start_idx:end_idx]
+
                     positive_score = F.cosine_similarity(query_emb, positive_emb).item()
                     negative_scores = F.cosine_similarity(query_emb, neg_embs).cpu().numpy()
                     
-                    rank = 1
-                    for neg_score in negative_scores:
-                        if neg_score > positive_score:
-                            rank += 1
+                    rank = 1 + np.sum(negative_scores > positive_score)
                     all_ranks.append(rank)
-                    valid_samples += 1
 
                 if all_ranks:
                     mrr_so_far = np.mean(1.0 / np.array(all_ranks))

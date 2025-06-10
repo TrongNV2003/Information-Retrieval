@@ -82,7 +82,7 @@ class TestingArguments:
                         query_embeddings = query_outputs.last_hidden_state[:, 0, :]
 
                         query_embeddings = normalize(query_embeddings).cpu().numpy().astype(np.float32)
-                        faiss.normalize_L2(query_embeddings)
+                        # faiss.normalize_L2(query_embeddings)
 
                     _, indices = self.faiss_index.search(query_embeddings, self.top_k)
                     
@@ -243,10 +243,9 @@ class TestingArguments:
         }
         
         print("\n=== Latency Statistics ===")
-        print(f"Mean Latency: {stats['mean_ms']:.2f} ms per sample")
-        print(f"P50 Latency: {stats['p50_ms']:.2f} ms per sample")
         print(f"P95 Latency: {stats['p95_ms']:.2f} ms per sample")
         print(f"P99 Latency: {stats['p99_ms']:.2f} ms per sample")
+        print(f"Mean Latency: {stats['mean_ms']:.2f} ms per sample")
         print(f"Min/Max Latency: {stats['min_ms']:.2f} / {stats['max_ms']:.2f} ms per sample")
         print(f"Total number of batches: {stats['total_batches']}")
         print(f"Batch size: {stats['batch_size']}")

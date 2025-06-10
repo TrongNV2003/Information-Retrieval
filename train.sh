@@ -19,9 +19,7 @@ python -m main \
     --record_output_file output.json \
     --early_stopping_patience 3 \
     --early_stopping_threshold 0.001 \
-    --triplet_loss_margin 1.0 \
     --evaluate_on_mrr \
-    # --use_triplet_loss \
     # --use_lora \
     # --lora_rank 8 \
     # --lora_alpha 16 \

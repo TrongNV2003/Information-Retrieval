@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from information_retrieval.utils.common import TripletDistanceMetric
+
 
 class CrossEntropyLoss(nn.Module):
     def __init__(self, weight=None, reduction='mean'):
@@ -15,21 +17,6 @@ class CrossEntropyLoss(nn.Module):
         )
 
 
-class WeightedCrossEntropyLoss(nn.Module):
-    def __init__(self, class_weights, reduction='mean'):
-        super(WeightedCrossEntropyLoss, self).__init__()
-        self.class_weights = torch.tensor(class_weights, dtype=torch.float)
-        self.reduction = reduction
-        
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        if self.class_weights.device != logits.device:
-            self.class_weights = self.class_weights.to(logits.device)
-            
-        return F.cross_entropy(
-            logits, targets, weight=self.class_weights, reduction=self.reduction
-        )
-
-
 class TripletLoss(nn.Module):
     """
     Triplet Loss for Information Retrieval.
@@ -38,30 +25,31 @@ class TripletLoss(nn.Module):
         - d(x, y): khoảng cách Euclidean.
         - margin: ngưỡng để đảm bảo negative xa anchor hơn positive.
     """
-    def __init__(self, margin: float = 1.0, reduction: str = 'mean'):
+    def __init__(self, distance_metric=TripletDistanceMetric.COSINE, triplet_margin: float = 5.0, reduction: str = 'mean'):
         """
         Args:
             margin (float): Ngưỡng margin cho triplet loss.
             reduction (str): Phương thức giảm loss ('mean', 'sum', hoặc 'none').
         """
         super(TripletLoss, self).__init__()
-        self.margin = margin
+        self.distance_metric = distance_metric
+        self.triplet_margin = triplet_margin
         self.reduction = reduction
 
     def forward(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            anchor (torch.Tensor): Embedding của câu hỏi (anchor), shape (batch_size, embedding_dim).
+            anchor (torch.Tensor): Embedding của query (anchor), shape (batch_size, embedding_dim).
             positive (torch.Tensor): Embedding của bài viết liên quan (positive), shape (batch_size, embedding_dim).
             negative (torch.Tensor): Embedding của bài viết không liên quan (negative), shape (batch_size, embedding_dim).
         Returns:
             torch.Tensor: loss value.
         """
 
-        distance_positive = torch.norm(anchor - positive, p=2, dim=1)
-        distance_negative = torch.norm(anchor - negative, p=2, dim=1)
+        distance_positive = self.distance_metric(anchor, positive)
+        distance_negative = self.distance_metric(anchor, negative)
 
-        losses = torch.relu(distance_positive - distance_negative + self.margin)
+        losses = F.relu(distance_positive - distance_negative + self.triplet_margin)
 
         if self.reduction == 'mean':
             return losses.mean()
@@ -73,11 +61,25 @@ class TripletLoss(nn.Module):
 
 class RankingLoss(nn.Module):
     def __init__(self, tau: float = 20):
+        """
+        Ranking Loss for Information Retrieval.
+        Args:
+            tau (float): Hệ số làm sắc nét (sharpening factor) cho điểm tương đồng.
+        """
         super(RankingLoss, self).__init__()
         self.tau = tau  # sharpening factor
 
     # "qi,pi->qp": nhân từng vector của query_vecs (kích thước q, d) với từng vector của doc_vecs (kích thước p, d) theo chiều d, để tạo ra ma trận cosine similarity kích thước (q, p).
     def forward(self, query_vecs: torch.Tensor, doc_vecs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        Tính toán loss cho batch dữ liệu.
+        Args:
+            query_vecs (torch.Tensor): Ma trận embedding của queries, shape (batch_size, embedding_dim).
+            doc_vecs (torch.Tensor): Ma trận embedding của documents, shape (batch_size, embedding_dim).
+            labels (torch.Tensor): Nhãn tương ứng với các cặp query-document, shape (batch_size,).
+        Returns:
+            torch.Tensor: Giá trị loss.
+        """
         cosine_similarity = torch.einsum("qi,pi->qp", 
                                          F.normalize(query_vecs, dim=-1, p=2), 
                                          F.normalize(doc_vecs, dim=-1, p=2))
@@ -125,12 +127,10 @@ class MultipleNegativesRankingLoss(nn.Module):
         similarity_scores = torch.zeros(batch_size, batch_size, device=query_embeddings.device)
         
         for i in range(batch_size):
-            # Tính tương đồng với positive document của chính query i
             similarity_scores[i, i] = self.similarity_fct(
                 query_embeddings[i:i+1], positive_embeddings[i:i+1]
             ) * self.scale
             
-            # Tính tương đồng với positive documents của các query khác (in-batch negatives)
             for j in range(batch_size):
                 if i != j:
                     similarity_scores[i, j] = self.similarity_fct(
@@ -145,10 +145,9 @@ class MultipleNegativesRankingLoss(nn.Module):
                     hard_negative_scores[i, j] = self.similarity_fct(
                         query_embeddings[i:i+1], negative_embeddings[j:j+1]
                     ) * self.scale
-            # Kết hợp in-batch negatives và hard negatives
+
             similarity_scores = torch.cat([similarity_scores, hard_negative_scores], dim=1)
         
-        # Nhãn: positive document của query i là document i (index i)
         labels = torch.arange(batch_size, dtype=torch.long, device=query_embeddings.device)
         
         loss = self.cross_entropy_loss(similarity_scores, labels)
@@ -169,11 +168,7 @@ class LossFunctionFactory:
             Một instance của loss function được yêu cầu
         """
         loss_dict = {
-            # Single-label losses
             "ce": CrossEntropyLoss,
-            "weighted_ce": WeightedCrossEntropyLoss,
-
-            # Loss for Information Retrieval
             "triplet": TripletLoss,
             "ranking": RankingLoss,
             "multiple_negatives_ranking": MultipleNegativesRankingLoss,

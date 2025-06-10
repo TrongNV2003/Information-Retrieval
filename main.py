@@ -3,37 +3,19 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import time
-import random
 import argparse
-import numpy as np
 
 import torch
 from transformers import AutoModel, AutoTokenizer
+from sentence_transformers import SentenceTransformer
 
-from information_retrieval.services.modeling import LabelingModel
-from information_retrieval.services.trainer import TrainingArguments
-from information_retrieval.services.evaluate import TestingArguments
-from information_retrieval.services.dataloader import BiEncoderDataset, Collator
-from information_retrieval.services.testloader import BiEncoderValDataset, BiEncoderValCollator
+from information_retrieval.bi_encoder.trainer import TrainingArguments
+from information_retrieval.bi_encoder.evaluate import TestingArguments
+from information_retrieval.bi_encoder.dataloader import BiEncoderDataset, BiEncoderCollator
+from information_retrieval.bi_encoder.testloader import BiEncoderValDataset, BiEncoderValCollator
+
 from information_retrieval.handler.encode_corpus import encode_corpus
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-def get_vram_usage(device):
-    if not torch.cuda.is_available():
-        return 0.0
-    return torch.cuda.max_memory_allocated(device) / (1024 ** 3)
-
-def count_parameters(model: torch.nn.Module) -> None:
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Total parameters: {total_params:,}")
-    print(f"Trainable parameters: {trainable_params:,}")
+from information_retrieval.utils.model_utils import set_seed, get_vram_usage, count_parameters
 
 
 parser = argparse.ArgumentParser()
@@ -58,15 +40,11 @@ parser.add_argument("--record_output_file", type=str, default="output.json")
 parser.add_argument("--early_stopping_patience", type=int, default=5, required=True)
 parser.add_argument("--early_stopping_threshold", type=float, default=0.001)
 parser.add_argument("--evaluate_on_mrr", action="store_true", default=False)
-parser.add_argument("--use_triplet_loss", action="store_true", default=False)
-parser.add_argument("--triplet_loss_margin", type=float, default=1.0)
-
 parser.add_argument("--use_lora", action="store_true", default=False, help="Whether to use LoRA for fine-tuning")
 parser.add_argument("--lora_rank", type=int, default=16, help="Rank for LoRA adaptation")
 parser.add_argument("--lora_alpha", type=int, default=32, help="Alpha parameter for LoRA")
 parser.add_argument("--lora_dropout", type=float, default=0.1, help="Dropout probability for LoRA layers")
-parser.add_argument("--lora_target_modules", type=str, default=None,
-                    help="Comma-separated list of target modules for LoRA. If None, defaults to q_proj,v_proj")
+parser.add_argument("--lora_target_modules", type=str, default=None, help="Target modules for LoRA, defaults to query, value")
 args = parser.parse_args()
 
 def get_tokenizer(checkpoint: str) -> AutoTokenizer:
@@ -85,22 +63,18 @@ if __name__ == "__main__":
     tokenizer = get_tokenizer(args.model)
     corpus_meta_file = "embedding_corpus/legal_corpus_docs.json"
     
-    train_set = BiEncoderDataset(json_file=args.train_file, tokenizer=tokenizer, max_length=args.max_length, include_title=False)
-    val_set = BiEncoderDataset(json_file=args.val_file, tokenizer=tokenizer, max_length=args.max_length, include_title=False)
+    train_set = BiEncoderDataset(json_file=args.train_file, tokenizer=tokenizer, include_title=False)
+    val_set = BiEncoderDataset(json_file=args.val_file, tokenizer=tokenizer, include_title=False)
     test_set = BiEncoderValDataset(json_file=args.test_file, corpus_meta_file=corpus_meta_file)
 
-    collator = Collator(tokenizer=tokenizer, max_length=args.max_length)
+    collator = BiEncoderCollator(tokenizer=tokenizer, max_length=args.max_length)
     test_collator = BiEncoderValCollator(tokenizer=tokenizer, max_length=args.max_length)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.set_float32_matmul_precision('high')
 
-    model = get_model(args.model, device=device)
+    model = SentenceTransformer(args.model, device=device)
 
-    # model = AutoModel.from_pretrained(args.model, device_map=device, torch_dtype="auto")
-    # model.embeddings.requires_grad_(False)
-    # model = LabelingModel(model, pooling_type="mean")
-    
     count_parameters(model)
 
     model_name = args.model.split('/')[-1]
@@ -129,8 +103,6 @@ if __name__ == "__main__":
         early_stopping_threshold=args.early_stopping_threshold,
         evaluate_on_mrr=args.evaluate_on_mrr,
         collator_fn=collator,
-        use_triplet_loss=args.use_triplet_loss,
-        triplet_loss_margin=args.triplet_loss_margin,
         use_lora=args.use_lora,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
