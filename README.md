@@ -60,3 +60,4 @@ bash train.sh
 
 ## Future work
 - Applying Rerank for finetuned models
+- Build Cross-encoder model for Rerank task
