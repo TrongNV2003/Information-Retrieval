@@ -18,3 +18,4 @@ transformers==4.47.0
 underthesea==6.8.4
 uvicorn==0.34.0
 faiss-cpu==1.11.0
+sentence-transformers==4.1.0
