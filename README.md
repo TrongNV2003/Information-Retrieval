@@ -1,11 +1,13 @@
 # Information Retrieval
-Information retrieval with Encoder models
+Information retrieval with Encoder models.
+
+- For Bi-encoder models, i use `MultipleNegativesRankingLoss` to compute the loss function, which enables efficient contrastive learning by comparing each positive pair in a batch against all other negatives in the same batch.
 
 ## Dataset usage
 In this repo, i use dataset: Zalo-AI-2021 Legal Text Retrieval.
 
 ### Example dataset
-Hard negatives dataset are also created using BM25. After preprocessing, the training set has format as follow:
+Hard negatives dataset are also created using BM25 and get top 3 negative documents relative to positive documents. After preprocessing, the training set has format as follow:
 ```json
 [
     {
