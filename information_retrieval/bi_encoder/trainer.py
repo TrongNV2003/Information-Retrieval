@@ -22,7 +22,7 @@ class TrainingArguments:
         epochs: int,
         learning_rate: float,
         weight_decay: float,
-        warmup_steps: int,
+        use_warmup_steps: bool,
         model: torch.nn.Module,
         tokenizer: AutoTokenizer,
         pin_memory: bool,
@@ -47,6 +47,7 @@ class TrainingArguments:
         self.tokenizer = tokenizer
         self.train_batch_size = train_batch_size
         self.valid_batch_size = valid_batch_size
+        self.use_warmup_steps = use_warmup_steps
 
         self.train_loader = DataLoader(
             train_set,
@@ -103,14 +104,19 @@ class TrainingArguments:
             ]
             self.optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
 
-        
         self.loss_fn = MultipleNegativesRankingLoss(model=self.model)
 
         num_training_steps = len(self.train_loader) * epochs
+        if self.use_warmup_steps:
+            num_warmup_steps = int(num_training_steps * 0.1)
+        else:
+            num_warmup_steps = 0
+        logger.info(f"Total training steps: {num_training_steps}, Warmup steps: {num_warmup_steps}")
+        
         self.scheduler = get_scheduler(
             "linear",
             optimizer=self.optimizer,
-            num_warmup_steps=warmup_steps,
+            num_warmup_steps=num_warmup_steps,
             num_training_steps=num_training_steps
         )
         

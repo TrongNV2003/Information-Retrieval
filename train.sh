@@ -4,7 +4,7 @@ python -m main \
     --epochs 10 \
     --learning_rate 5e-5 \
     --weight_decay 0.01 \
-    --warmup_steps 100 \
+    --use_warmup_steps \
     --max_length 512 \
     --pad_mask_id -100 \
     --model hiieu/halong_embedding \

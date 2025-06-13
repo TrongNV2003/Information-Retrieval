@@ -158,7 +158,7 @@ class TestingArguments:
 
         metrics = self._calculate_metrics(all_ranks, all_hits_at_k, all_ndcg_at_k)
         
-        latency_stats = self._calculate_latency_stats(latencies, batch_size)
+        latency_stats = self._calculate_latency(latencies, batch_size)
         metrics["latency"] = latency_stats
 
         print(f"Number of successfully processed samples: {len(all_ranks)}")
@@ -225,10 +225,8 @@ class TestingArguments:
         
         return metrics
 
-    def _calculate_latency_stats(self, latencies: List[float], batch_size: int = 1) -> Dict[str, float]:
-        """Tính toán thống kê về latency"""
+    def _calculate_latency(self, latencies: List[float], batch_size: int = 1) -> Dict[str, float]:
         latencies_array = np.array(latencies)
-        
         per_sample_latencies = latencies_array * 1000 / batch_size
         
         stats = {

@@ -24,7 +24,7 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--epochs", type=int, default=10, required=True)
 parser.add_argument("--learning_rate", type=float, default=3e-5, required=True)
 parser.add_argument("--weight_decay", type=float, default=0.01)
-parser.add_argument("--warmup_steps", type=int, default=50)
+parser.add_argument("--use_warmup_steps", action="store_true", default=False)
 parser.add_argument("--max_length", type=int, default=256)
 parser.add_argument("--pad_mask_id", type=int, default=-100)
 parser.add_argument("--model", type=str, default="vinai/phobert-base-v2", required=True)
@@ -58,6 +58,8 @@ def get_model(checkpoint: str, device: str) -> AutoModel:
 
 
 if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.set_float32_matmul_precision('high')
     set_seed(args.seed)
 
     tokenizer = get_tokenizer(args.model)
@@ -69,9 +71,6 @@ if __name__ == "__main__":
 
     collator = BiEncoderCollator(tokenizer=tokenizer, max_length=args.max_length)
     test_collator = BiEncoderValCollator(tokenizer=tokenizer, max_length=args.max_length)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.set_float32_matmul_precision('high')
 
     model = SentenceTransformer(args.model, device=device)
 
@@ -90,7 +89,7 @@ if __name__ == "__main__":
         epochs=args.epochs,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
-        warmup_steps=args.warmup_steps,
+        use_warmup_steps=args.use_warmup_steps,
         model=model,
         tokenizer=tokenizer,
         pin_memory=args.pin_memory,
