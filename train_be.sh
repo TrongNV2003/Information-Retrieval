@@ -1,4 +1,4 @@
-python -m main \
+python -m mainBE \
     --dataloader_workers 2 \
     --seed 42 \
     --epochs 10 \

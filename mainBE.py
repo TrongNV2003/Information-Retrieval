@@ -120,8 +120,8 @@ if __name__ == "__main__":
         base_model = get_model(args.model, device=device)
         tuned_model = PeftModel.from_pretrained(base_model, save_dir)
     else:
-        tuned_model = get_model(save_dir, device=device)
-    
+        tuned_model = SentenceTransformer(args.model, device=device)
+        
     corpus_embedding = encode_corpus(
         corpus=corpus_meta_file,
         tuned_model=tuned_model,
