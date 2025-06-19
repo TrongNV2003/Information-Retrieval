@@ -12,7 +12,9 @@ from tqdm import tqdm
 from loguru import logger
 from typing import Optional, Callable
 
+from information_retrieval.utils.norm import normalize
 from information_retrieval.utils.utils import AverageMeter
+from information_retrieval.handler.loss import LossFunctionFactory
 
 class TrainingArguments:
     def __init__(
@@ -22,7 +24,7 @@ class TrainingArguments:
         epochs: int,
         learning_rate: float,
         weight_decay: float,
-        use_warmup_steps: bool,
+        warmup_steps: int,
         model: torch.nn.Module,
         tokenizer: AutoTokenizer,
         pin_memory: bool,
@@ -47,7 +49,6 @@ class TrainingArguments:
         self.tokenizer = tokenizer
         self.train_batch_size = train_batch_size
         self.valid_batch_size = valid_batch_size
-        self.use_warmup_steps = use_warmup_steps
 
         self.train_loader = DataLoader(
             train_set,
@@ -104,19 +105,15 @@ class TrainingArguments:
             ]
             self.optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
 
+        
         self.loss_fn = MultipleNegativesRankingLoss(model=self.model)
+        logger.info("Using Multiple Negatives Ranking Loss")
 
         num_training_steps = len(self.train_loader) * epochs
-        if self.use_warmup_steps:
-            num_warmup_steps = int(num_training_steps * 0.1)
-        else:
-            num_warmup_steps = 0
-        logger.info(f"Total training steps: {num_training_steps}, Warmup steps: {num_warmup_steps}")
-        
         self.scheduler = get_scheduler(
             "linear",
             optimizer=self.optimizer,
-            num_warmup_steps=num_warmup_steps,
+            num_warmup_steps=warmup_steps,
             num_training_steps=num_training_steps
         )
         
@@ -200,7 +197,7 @@ class TrainingArguments:
         
         with tqdm(total=len(dataloader), unit="batches") as tepoch:
             tepoch.set_description("validation")
-            for batch_idx, batch in enumerate(dataloader):
+            for batch in dataloader:
                 sentence_features, _ = batch
                 
                 query_embs = self.model(sentence_features[0])['sentence_embedding']
@@ -236,31 +233,31 @@ class TrainingArguments:
                     })
                 tepoch.update(1)
                     
-
         all_ranks = np.array(all_ranks)
         mrr = np.mean(1.0 / all_ranks)
         logger.info(f"Processed {len(all_ranks)} samples in validation")
         logger.info(f"MRR@4: {mrr:.4f}")
-        self._metrics(all_ranks)
+        self._calculate_metrics(all_ranks)
         return mrr
 
-    def _metrics(self, all_ranks: np.ndarray) -> None:
+
+    def _calculate_metrics(self, all_ranks: np.ndarray) -> None:
         mrr = np.mean(1.0 / all_ranks)
         accuracy_at_1 = np.mean(all_ranks == 1)
-        recall_at_3 = np.mean(all_ranks <= 3)
-        recall_at_4 = np.mean(all_ranks <= 4)
+        accuracy_at_3 = np.mean(all_ranks <= 3)
+        accuracy_at_4 = np.mean(all_ranks <= 4)
+        
+        count_top1 = np.sum(all_ranks == 1)
+        count_top3 = np.sum(all_ranks <= 3)
+        count_top4 = np.sum(all_ranks <= 4)
         
         print(f"\n=== Metrics ===")
         print(f"Number of samples: {len(all_ranks)}")
         print(f"Rank statistics: min={all_ranks.min()}, max={all_ranks.max()}, mean={all_ranks.mean():.1f}, median={np.median(all_ranks):.1f}")
         print(f"MRR: {mrr * 100:.2f}%")
         print(f"Accuracy@1: {accuracy_at_1 * 100:.2f}%")
-        print(f"Recall@3: {recall_at_3 * 100:.2f}%")
-        print(f"Recall@4: {recall_at_4 * 100:.2f}%")
-
-        count_top1 = np.sum(all_ranks == 1)
-        count_top3 = np.sum(all_ranks <= 3)
-        count_top4 = np.sum(all_ranks <= 4)
+        print(f"Accuracy@3: {accuracy_at_3 * 100:.2f}%")
+        print(f"Accuracy@4: {accuracy_at_4 * 100:.2f}%")
 
         print(f"\n=== Rank Distribution ===")
         print(f"Top-1: {count_top1}/{len(all_ranks)} samples ({count_top1 / len(all_ranks) * 100:.2f}%)")

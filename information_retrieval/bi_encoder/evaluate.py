@@ -151,67 +151,48 @@ class TestingArguments:
         all_hits_at_k = np.array(all_hits_at_k)
         all_ndcg_at_k = np.array(all_ndcg_at_k)
         
+        self._calculate_metrics(all_ranks, all_hits_at_k, all_ndcg_at_k)
+        self._calculate_latency(latencies, batch_size)
+        
         if self.output_file:
             with open(self.output_file, "w", encoding="utf-8") as f:
                 json.dump(results, f, ensure_ascii=False, indent=4)
             print(f"Results saved to {self.output_file}")
 
-        metrics = self._calculate_metrics(all_ranks, all_hits_at_k, all_ndcg_at_k)
-        
-        latency_stats = self._calculate_latency(latencies, batch_size)
-        metrics["latency"] = latency_stats
-
-        print(f"Number of successfully processed samples: {len(all_ranks)}")
-        return metrics
 
     def _calculate_metrics(self, all_ranks: np.ndarray, all_hits_at_k: np.ndarray, all_ndcg_at_k: np.ndarray) -> Dict[str, float]:
         metrics = {}
-        if all_ranks.size > 0:
-            mrr = np.mean([1.0 / r if r <= self.top_k else 0.0 for r in all_ranks])
-            acc_at_1 = np.mean(all_ranks == 1)
-            precision_at_5 = np.mean(all_ranks <= 5)
-            precision_at_10 = np.mean(all_ranks <= 10)
-            
-            metrics["mrr"] = float(mrr)
-            metrics["accuracy@1"] = float(acc_at_1)
-            metrics["precision@5"] = float(precision_at_5)
-            metrics["precision@10"] = float(precision_at_10)
-
-            rank_distribution = {
-                "min": int(all_ranks.min()),
-                "max": int(all_ranks.max()),
-                "mean": float(all_ranks.mean()),
-                "median": float(np.median(all_ranks)),
-                "std": float(all_ranks.std()),
-                "count_top1": int(np.sum(all_ranks == 1)),
-                "count_top5": int(np.sum(all_ranks <= 5)),
-                "count_top10": int(np.sum(all_ranks <= 10)),
-            }
-            metrics["rank_distribution"] = rank_distribution
-        else:
-            metrics["mrr"] = 0.0
-            metrics["accuracy@1"] = 0.0
-            metrics["precision@5"] = 0.0
-            metrics["precision@10"] = 0.0
-            metrics["rank_distribution"] = {}
+        mrr = np.mean([1.0 / r if r <= self.top_k else 0.0 for r in all_ranks])
+        acc_at_1 = np.mean(all_ranks == 1)
+        acc_at_5 = np.mean(all_ranks <= 5)
+        acc_at_10 = np.mean(all_ranks <= 10)
         
-        if all_hits_at_k.size > 0:
-            metrics[f"precision@{self.top_k}"] = float(all_hits_at_k.mean())
-        else:
-            metrics[f"precision@{self.top_k}"] = 0.0
+        metrics["mrr"] = float(mrr)
+        metrics["accuracy@1"] = float(acc_at_1)
+        metrics["accuracy@5"] = float(acc_at_5)
+        metrics["accuracy@10"] = float(acc_at_10)
 
-        if all_ndcg_at_k.size > 0:
-            metrics[f"ndcg@{self.top_k}"] = float(all_ndcg_at_k.mean())
-        else:
-            metrics[f"ndcg@{self.top_k}"] = 0.0
+        rank_distribution = {
+            "min": int(all_ranks.min()),
+            "max": int(all_ranks.max()),
+            "mean": float(all_ranks.mean()),
+            "median": float(np.median(all_ranks)),
+            "count_top1": int(np.sum(all_ranks == 1)),
+            "count_top5": int(np.sum(all_ranks <= 5)),
+            "count_top10": int(np.sum(all_ranks <= 10)),
+        }
+        metrics["rank_distribution"] = rank_distribution
+        metrics[f"accuracy@{self.top_k}"] = float(all_hits_at_k.mean())
+        metrics[f"ndcg@{self.top_k}"] = float(all_ndcg_at_k.mean())
         
         print(f"\n=== Evaluation Metrics ===")
         print(f"MRR: {metrics.get('mrr', 0.0) * 100:.2f}%")
         print(f"MRR@{self.top_k}: {metrics.get('mrr', 0.0) * 100:.2f}%")
         print(f"Accuracy@1: {metrics.get('accuracy@1', 0.0) * 100:.2f}%")
-        print(f"Precision@5: {metrics.get('precision@5', 0.0) * 100:.2f}%")
-        print(f"Precision@{self.top_k}: {metrics.get(f'precision@{self.top_k}', 0.0) * 100:.2f}%")
+        print(f"Accuracy@5: {metrics.get('accuracy@5', 0.0) * 100:.2f}%")
+        print(f"Accuracy@{self.top_k}: {metrics.get(f'accuracy@{self.top_k}', 0.0) * 100:.2f}%")
         print(f"NDCG@{self.top_k}: {metrics.get(f'ndcg@{self.top_k}', 0.0) * 100:.2f}%")
+        
         
         if "rank_distribution" in metrics and metrics["rank_distribution"]:
             dist = metrics["rank_distribution"]
@@ -222,29 +203,17 @@ class TestingArguments:
             print(f"Top-1: {dist['count_top1']}/{total} ({dist['count_top1']/total*100:.2f}%)")
             print(f"Top-5: {dist['count_top5']}/{total} ({dist['count_top5']/total*100:.2f}%)")
             print(f"Top-10: {dist['count_top10']}/{total} ({dist['count_top10']/total*100:.2f}%)")
-        
-        return metrics
 
-    def _calculate_latency(self, latencies: List[float], batch_size: int = 1) -> Dict[str, float]:
-        latencies_array = np.array(latencies)
-        per_sample_latencies = latencies_array * 1000 / batch_size
-        
-        stats = {
-            "p95_ms": float(np.percentile(per_sample_latencies, 95)),
-            "p99_ms": float(np.percentile(per_sample_latencies, 99)),
-            "mean_ms": float(np.mean(per_sample_latencies)),
-            "min_ms": float(np.min(per_sample_latencies)),
-            "max_ms": float(np.max(per_sample_latencies)),
-            "batch_size": int(batch_size),
-            "total_samples": int(len(latencies) * batch_size),
-            "total_batches": int(len(latencies)),
-        }
-        
+
+    def _calculate_latency(self, latencies: List[float]) -> None:
+        latencies = np.array(latencies) * 1000
+        p95_ms = np.percentile(latencies, 95)
+        p99_ms = np.percentile(latencies, 99)
+        mean_ms = np.mean(latencies)
+        min_ms = np.min(latencies)
+        max_ms = np.max(latencies)
         print("\n=== Latency Statistics ===")
-        print(f"P95 Latency: {stats['p95_ms']:.2f} ms per sample")
-        print(f"P99 Latency: {stats['p99_ms']:.2f} ms per sample")
-        print(f"Mean Latency: {stats['mean_ms']:.2f} ms per sample")
-        print(f"Min/Max Latency: {stats['min_ms']:.2f} / {stats['max_ms']:.2f} ms per sample")
-        print(f"Total number of batches: {stats['total_batches']}")
-        print(f"Batch size: {stats['batch_size']}")
-        return stats
+        print(f"P95 Latency: {p95_ms:.2f} ms per sample")
+        print(f"P99 Latency: {p99_ms:.2f} ms per sample")
+        print(f"Mean Latency: {mean_ms:.2f} ms per sample")
+        print(f"Min/Max Latency: {min_ms:.2f} / {max_ms:.2f} ms per sample")
