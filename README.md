@@ -1,12 +1,17 @@
 # Information Retrieval
-Information retrieval with Encoder models.
+Information retrieval with Encoder models, this IR systems combine both of these approaches by using a Bi-encoder to quickly retrieve a set of candidates, then using a Cross-encoder to re-rank candidate more accurately.
 
-- For Bi-encoder models, i use `MultipleNegativesRankingLoss` to compute the loss function, which enables efficient contrastive learning by comparing each positive pair in a batch against all other negatives in the same batch.
+## System Overview
+A typical high-performance search system operates in two stages to balance speed and accuracy:
 
-## Dataset usage
+Retrieval (Candidate Generation): A fast model (the Bi-Encoder) scans a massive corpus of documents (e.g., million documents) and quickly retrieves a smaller, relevant subset of candidates (e.g., top 10).
+
+Re-ranking: A slower but more powerful model (the Cross-Encoder) carefully examines this small subset of candidates and re-orders them to produce the final, highly accurate ranking.
+
+## Dataset Usage
 In this repo, i use dataset: Zalo-AI-2021 Legal Text Retrieval.
 
-### Example dataset
+### Example Dataset
 Hard negatives dataset are also created using BM25 and get top 3 negative documents relative to positive documents. After preprocessing, the training set has format as follow:
 ```json
 [
@@ -53,11 +58,16 @@ pip install -r requirements.txt
 ```
 
 ## Usage
-training and evaluating models:
+Training and evaluating for Bi-encoder model:
 ```sh
-bash train.sh
+bash train_be.sh
+```
+
+Training and evaluating for Cross-encoder model:
+```sh
+bash train_ce.sh
 ```
 
 ## Future work
 - Applying Rerank for finetuned models
-- Build Cross-encoder model for Rerank task
+- Build Cross-encoder model for Rerank task  (Done)
