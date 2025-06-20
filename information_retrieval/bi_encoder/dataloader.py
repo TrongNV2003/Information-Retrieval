@@ -18,32 +18,28 @@ class BiEncoderDataset(Dataset):
         
         with open(json_file, "r", encoding="utf-8") as f:
             self.data = json.load(f)
-        
-        self.samples = []
-        for item in self.data:
-            query = item["question"]
-            
-            positive_article = item["relevant_articles"][0]
-            if self.include_title:
-                positive_text = f"{positive_article['title']} {self.sep_token} {positive_article['text']}"
-            else:
-                positive_text = positive_article["text"]
-
-            texts = [query, positive_text]
-            for neg_article in item['hard_negatives']:
-                if self.include_title:
-                    neg_text = f"{neg_article['title']} {self.sep_token} {neg_article['text']}"
-                else:
-                    neg_text = neg_article['text']
-                texts.append(neg_text)
-            
-            self.samples.append(InputExample(texts=texts, label=0))
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.data)
 
     def __getitem__(self, index: int) -> InputExample:
-        return self.samples[index]
+        item = self.data[index]
+        query = item["question"]
+        positive_article = item["relevant_articles"][0]
+        if self.include_title:
+            positive_text = f"{positive_article['title']} {self.sep_token} {positive_article['text']}"
+        else:
+            positive_text = positive_article["text"]
+
+        texts = [query, positive_text]
+        for neg_article in item['hard_negatives']:
+            if self.include_title:
+                neg_text = f"{neg_article['title']} {self.sep_token} {neg_article['text']}"
+            else:
+                neg_text = neg_article['text']
+            texts.append(neg_text)
+
+        return InputExample(texts=texts, label=0)
 
 
 class BiEncoderCollator:
@@ -52,7 +48,6 @@ class BiEncoderCollator:
         self.max_length = max_length
 
     def __call__(self, batch: List[InputExample]) -> tuple:
-        # batch là một list các InputExample
         # Mỗi InputExample.texts là một list [query, positive, neg1, neg2, ...]
         
         num_texts = len(batch[0].texts)
