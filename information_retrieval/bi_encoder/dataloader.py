@@ -48,8 +48,6 @@ class BiEncoderCollator:
         self.max_length = max_length
 
     def __call__(self, batch: List[InputExample]) -> tuple:
-        # Mỗi InputExample.texts là một list [query, positive, neg1, neg2, ...]
-        
         num_texts = len(batch[0].texts)
         texts = [[] for _ in range(num_texts)]
         labels = []

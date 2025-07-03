@@ -199,6 +199,7 @@ class TrainingArguments:
             tepoch.set_description("validation")
             for batch in dataloader:
                 sentence_features, _ = batch
+                sentence_features = [{k: v.to(self.device) for k, v in sf.items()} for sf in sentence_features]
                 
                 query_embs = self.model(sentence_features[0])['sentence_embedding']
                 positive_embs = self.model(sentence_features[1])['sentence_embedding']
