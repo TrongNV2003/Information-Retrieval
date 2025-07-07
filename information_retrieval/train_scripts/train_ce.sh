@@ -2,7 +2,7 @@
 export PYTHONPATH=$PYTHONPATH:$PWD
 mkdir results
 
-python -m information_retrieval.bi_encoder.main \
+python -m information_retrieval.cross_encoder.main \
     --dataloader_num_workers 2 \
     --seed 42 \
     --learning_rate 5e-5 \
@@ -12,7 +12,7 @@ python -m information_retrieval.bi_encoder.main \
     --max_length 512 \
     --optim adamw_torch_fused \
     --lr_scheduler_type linear \
-    --model 5CD-AI/visobert-14gb-corpus \
+    --model hiieu/halong_embedding \
     --pin_memory \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 32 \
@@ -20,7 +20,7 @@ python -m information_retrieval.bi_encoder.main \
     --train_file dataset/ZaloTextRetrieval/dataset_negatives_reranks_clean/train_negatives.json \
     --valid_file dataset/ZaloTextRetrieval/dataset_negatives_reranks_clean/val_negatives.json \
     --test_file dataset/ZaloTextRetrieval/dataset_negatives_reranks_clean/test_negatives.json \
-    --corpus_file embedding_corpus/legal_corpus_docs.json \
+    --include_title \
     --output_dir ./models \
     --record_output_path ./results \
     --eval_strategy epoch \
@@ -29,7 +29,7 @@ python -m information_retrieval.bi_encoder.main \
     --logging_steps 100 \
     --logging_dir ./models/logs \
     --fp16 \
-    --metric_for_best_model val_cosine_mrr_at_10 \
+    --metric_for_best_model val_mrr_at_10 \
     --greater_is_better \
     --load_best_model_at_end \
     --report_to mlflow \

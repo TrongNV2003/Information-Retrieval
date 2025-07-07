@@ -1,6 +1,8 @@
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 import sys
-my_path = os.path.abspath(os.path.dirname(__file__).replace("ir", ""))
+my_path = os.path.abspath(os.path.dirname(__file__).replace("ir/cross_encoder", ""))
 sys.path.append(my_path)
 
 import torch
@@ -9,16 +11,15 @@ import argparse
 from dotenv import load_dotenv
 from transformers import AutoTokenizer
 from sentence_transformers.training_args import BatchSamplers
-from sentence_transformers.losses import MultipleNegativesRankingLoss
-from sentence_transformers import SentenceTransformer, SentenceTransformerTrainingArguments, SentenceTransformerTrainer
+from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainingArguments, CrossEncoderTrainer
+from sentence_transformers.cross_encoder.losses import CachedMultipleNegativesRankingLoss, MultipleNegativesRankingLoss, CrossEntropyLoss
 
-from information_retrieval.bi_encoder.dataloader import load_train_dataset
 from information_retrieval.callbacks.memory_callback import MemoryLoggerCallback
-from information_retrieval.bi_encoder.metrics import compute_metrics
+from information_retrieval.cross_encoder.trainer.dataloader import load_train_dataset
 from information_retrieval.utils.model_utils import set_seed, count_parameters
+from information_retrieval.cross_encoder.trainer.metrics import compute_rerank_metrics as compute_metrics
 
-mlflow.set_experiment("phobert-bi-encoder")
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+mlflow.set_experiment("cross-encoder")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
 
@@ -28,7 +29,6 @@ parser.add_argument("--model", type=str, default="vinai/phobert-base-v2", requir
 parser.add_argument("--train_file", type=str, default="dataset/train_word.json", required=True, help="Path to training data")
 parser.add_argument("--valid_file", type=str, default="dataset/dev_word.json", required=True, help="Path to validation data")
 parser.add_argument("--test_file", type=str, default="dataset/test_word.json", required=True, help="Path to test data")
-parser.add_argument("--corpus_file", type=str, default="embedding_corpus/legal_corpus_docs.json", help="Path to corpus data")
 parser.add_argument("--max_length", type=int, default=256, help="Maximum sequence length for tokenization")
 parser.add_argument("--optim", type=str, default="adamw_torch_fused", help="Optimizer to use for training")
 parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
@@ -64,22 +64,20 @@ def get_tokenizer(checkpoint: str):
     return tokenizer
 
 def get_model(checkpoint: str, device: str):
-    model = SentenceTransformer(checkpoint, device=device)
+    model = CrossEncoder(checkpoint, device=device, num_labels=1)
     return model
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.set_float32_matmul_precision('high')
     set_seed(args.seed)
+    
     tokenizer = get_tokenizer(args.model)
     model = get_model(args.model, device)
-    
-    model.max_seq_length = model.max_seq_length - 2
-    print(f"Model max sequence length: {model.max_seq_length}")
 
     train_set = load_train_dataset(json_file=args.train_file, tokenizer=tokenizer, include_title=args.include_title)
     
-    val_evaluator = compute_metrics(args.valid_file, args.corpus_file, name="val", tokenizer=tokenizer, batch_size=args.per_device_eval_batch_size, include_title=args.include_title)
+    val_evaluator = compute_metrics(args.valid_file, name="val", tokenizer=tokenizer, batch_size=args.per_device_eval_batch_size, include_title=args.include_title)
     
     train_loss = MultipleNegativesRankingLoss(model=model)
     
@@ -89,7 +87,7 @@ if __name__ == "__main__":
     save_dir = f"{args.output_dir}/{model_name}"
     logging_dir = args.logging_dir if args.logging_dir else f"{save_dir}/logs"
 
-    training_args = SentenceTransformerTrainingArguments(
+    training_args = CrossEncoderTrainingArguments(
         output_dir=save_dir,
         num_train_epochs=args.num_train_epochs,
         seed=args.seed,
@@ -117,7 +115,7 @@ if __name__ == "__main__":
         dataloader_pin_memory=args.pin_memory,
         batch_sampler=BatchSamplers.NO_DUPLICATES,
     )
-    trainer = SentenceTransformerTrainer(
+    trainer = CrossEncoderTrainer(
         model=model,
         args=training_args,
         train_dataset=train_set,
@@ -131,9 +129,8 @@ if __name__ == "__main__":
 
 
     # Evaluation
-    test_evaluator = compute_metrics(args.test_file, args.corpus_file, name="test", tokenizer=tokenizer, batch_size=args.test_batch_size, include_title=args.include_title)
+    test_evaluator = compute_metrics(args.test_file, name="test", tokenizer=tokenizer, batch_size=args.test_batch_size, include_title=args.include_title)
     test_results = test_evaluator(model=model, output_path=args.record_output_path)
     
     for metric, value in test_results.items():
         print(f"{metric}: {value:.4f}")
-        
