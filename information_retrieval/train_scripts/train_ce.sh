@@ -13,10 +13,12 @@ python -m information_retrieval.cross_encoder.main \
     --optim adamw_torch_fused \
     --lr_scheduler_type linear \
     --model hiieu/halong_embedding \
+    --embedding_model hiieu/halong_embedding \
     --pin_memory \
     --per_device_train_batch_size 32 \
     --per_device_eval_batch_size 32 \
     --test_batch_size 32 \
+    --num_hard_negatives 5 \
     --train_file dataset/ZaloTextRetrieval/dataset_negatives_reranks_clean/train_negatives.json \
     --valid_file dataset/ZaloTextRetrieval/dataset_negatives_reranks_clean/val_negatives.json \
     --test_file dataset/ZaloTextRetrieval/dataset_negatives_reranks_clean/test_negatives.json \
@@ -29,7 +31,7 @@ python -m information_retrieval.cross_encoder.main \
     --logging_steps 100 \
     --logging_dir ./models/logs \
     --fp16 \
-    --metric_for_best_model val_mrr_at_10 \
+    --metric_for_best_model eval_val_mrr_at_10 \
     --greater_is_better \
     --load_best_model_at_end \
     --report_to mlflow \

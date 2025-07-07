@@ -129,6 +129,11 @@ if __name__ == "__main__":
     )
     trainer.train()
 
+    best_model_path = f"{save_dir}/best_model"
+    if not os.path.exists(best_model_path):
+        os.makedirs(best_model_path, exist_ok=True)
+    trainer.save_model(best_model_path)
+    print(f"Đã lưu model tốt nhất tại: {best_model_path}")
 
     # Evaluation
     test_evaluator = compute_metrics(args.test_file, args.corpus_file, name="test", tokenizer=tokenizer, batch_size=args.test_batch_size, include_title=args.include_title)

@@ -10,11 +10,13 @@ import mlflow
 import argparse
 from dotenv import load_dotenv
 from transformers import AutoTokenizer
+from sentence_transformers import SentenceTransformer
 from sentence_transformers.training_args import BatchSamplers
 from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainingArguments, CrossEncoderTrainer
 from sentence_transformers.cross_encoder.losses import CachedMultipleNegativesRankingLoss, MultipleNegativesRankingLoss, CrossEntropyLoss
 
 from information_retrieval.callbacks.memory_callback import MemoryLoggerCallback
+from information_retrieval.cross_encoder.trainer.hard_negatives_mining import HardNegativesMining
 from information_retrieval.cross_encoder.trainer.dataloader import load_train_dataset
 from information_retrieval.utils.model_utils import set_seed, count_parameters
 from information_retrieval.cross_encoder.trainer.metrics import compute_rerank_metrics as compute_metrics
@@ -26,6 +28,7 @@ load_dotenv()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, default="vinai/phobert-base-v2", required=True, help="Model checkpoint or name")
+parser.add_argument("--embedding_model", type=str, default="hiieu/halong_embedding", help="Embedding model for hard negatives mining")
 parser.add_argument("--train_file", type=str, default="dataset/train_word.json", required=True, help="Path to training data")
 parser.add_argument("--valid_file", type=str, default="dataset/dev_word.json", required=True, help="Path to validation data")
 parser.add_argument("--test_file", type=str, default="dataset/test_word.json", required=True, help="Path to test data")
@@ -40,6 +43,7 @@ parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight dec
 parser.add_argument("--warmup_ratio", type=float, default=0.1, help="Number of warmup steps")
 parser.add_argument("--per_device_train_batch_size", type=int, default=16, help="Batch size for training")
 parser.add_argument("--per_device_eval_batch_size", type=int, default=16, help="Batch size for evaluation")
+parser.add_argument("--num_hard_negatives", type=int, default=5, help="Number of hard negatives to mine per positive example")
 parser.add_argument("--eval_strategy", type=str, default="epoch", choices=["no", "steps", "epoch"], help="Evaluation strategy")
 parser.add_argument("--save_strategy", type=str, default="epoch", choices=["no", "steps", "epoch"], help="Save strategy")
 parser.add_argument("--save_total_limit", type=int, default=2, help="Maximum number of checkpoints to save")
@@ -76,6 +80,17 @@ if __name__ == "__main__":
     model = get_model(args.model, device)
 
     train_set = load_train_dataset(json_file=args.train_file, tokenizer=tokenizer, include_title=args.include_title)
+
+    embedding_model = SentenceTransformer(args.embedding_model, device=device)
+    
+    # hard_negatives_mining = HardNegativesMining(
+    #     embedding_model=embedding_model,
+    #     train_dataset=train_set,
+    #     batch_size=args.per_device_train_batch_size,
+    #     num_negatives=args.num_hard_negatives,
+    # )
+    # train_set = hard_negatives_mining.mine()
+    # train_set.save_to_disk(f"{args.output_dir}/train_hard_negative_dataset")
     
     val_evaluator = compute_metrics(args.valid_file, name="val", tokenizer=tokenizer, batch_size=args.per_device_eval_batch_size, include_title=args.include_title)
     
@@ -127,6 +142,11 @@ if __name__ == "__main__":
     )
     trainer.train()
 
+    best_model_path = f"{save_dir}/best_model"
+    if not os.path.exists(best_model_path):
+        os.makedirs(best_model_path, exist_ok=True)
+    trainer.save_model(best_model_path)
+    print(f"Đã lưu model tốt nhất tại: {best_model_path}")
 
     # Evaluation
     test_evaluator = compute_metrics(args.test_file, name="test", tokenizer=tokenizer, batch_size=args.test_batch_size, include_title=args.include_title)
