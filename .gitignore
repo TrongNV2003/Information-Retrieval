@@ -28,3 +28,4 @@ dataset
 # Ignore temporary files
 *.tmp
 *.png
+.old
